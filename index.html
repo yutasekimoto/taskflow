@@ -33,13 +33,17 @@
         .task-content { flex: 1; }
         .task-text { font-size: 16px; margin-bottom: 5px; }
         .task-meta { font-size: 12px; color: #666; }
-        .task-actions { display: flex; gap: 8px; }
-        .task-actions button { width: 36px; height: 36px; background: none; border: 1px solid #ddd; cursor: pointer; border-radius: 50%; color: #666; font-size: 16px; display: flex; align-items: center; justify-content: center; }
-        .task-actions button:hover { transform: scale(1.1); transition: all 0.2s; }
-        .task-actions .start { border-color: #667eea; color: #667eea; background: rgba(102, 126, 234, 0.1); }
-        .task-actions .complete { border-color: #4CAF50; color: #4CAF50; background: rgba(76, 175, 80, 0.1); }
-        .task-actions .delete { border-color: #f44336; color: #f44336; background: rgba(244, 67, 54, 0.1); }
-        .task-actions .back { border-color: #ff9800; color: #ff9800; background: rgba(255, 152, 0, 0.1); }
+        .task-actions { display: flex; gap: 12px; }
+        .task-actions button { width: 40px; height: 40px; background: #f8f9fa; border: none; cursor: pointer; border-radius: 50%; color: #6c757d; font-size: 18px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; }
+        .task-actions button:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .task-actions .start { color: #007bff; }
+        .task-actions .start:hover { background: #e3f2fd; }
+        .task-actions .complete { color: #28a745; }
+        .task-actions .complete:hover { background: #e8f5e8; }
+        .task-actions .delete { color: #dc3545; }
+        .task-actions .delete:hover { background: #fdeaea; }
+        .task-actions .back { color: #fd7e14; }
+        .task-actions .back:hover { background: #fff3cd; }
         .empty { text-align: center; padding: 40px; color: rgba(255,255,255,0.8); }
     </style>
 </head>
@@ -106,16 +110,16 @@
             let actions = '';
             
             if (task.status === 'todo') {
-                actions += `<button class="start" onclick="changeStatus(${task.id}, 'progress')" title="開始">▶️</button>`;
-                actions += `<button class="complete" onclick="changeStatus(${task.id}, 'completed')" title="完了">✅</button>`;
+                actions += `<button class="start" onclick="changeStatus(${task.id}, 'progress')" title="開始">▷</button>`;
+                actions += `<button class="complete" onclick="changeStatus(${task.id}, 'completed')" title="完了">✓</button>`;
             } else if (task.status === 'progress') {
-                actions += `<button class="back" onclick="changeStatus(${task.id}, 'todo')" title="戻す">⏸️</button>`;
-                actions += `<button class="complete" onclick="changeStatus(${task.id}, 'completed')" title="完了">✅</button>`;
+                actions += `<button class="back" onclick="changeStatus(${task.id}, 'todo')" title="戻す">⏸</button>`;
+                actions += `<button class="complete" onclick="changeStatus(${task.id}, 'completed')" title="完了">✓</button>`;
             } else if (task.status === 'completed') {
-                actions += `<button class="back" onclick="changeStatus(${task.id}, 'todo')" title="再開">🔄</button>`;
+                actions += `<button class="back" onclick="changeStatus(${task.id}, 'todo')" title="再開">↻</button>`;
             }
             
-            actions += `<button class="delete" onclick="deleteTask(${task.id})" title="削除">🗑️</button>`;
+            actions += `<button class="delete" onclick="deleteTask(${task.id})" title="削除">×</button>`;
             return actions;
         }
 
