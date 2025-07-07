@@ -13,7 +13,8 @@
         .header { text-align: center; color: white; margin-bottom: 30px; }
         .header h1 { font-size: 2.5em; margin-bottom: 10px; }
         .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; }
-        .stat { background: rgba(255,255,255,0.9); padding: 15px; border-radius: 15px; text-align: center; }
+        .stat { background: rgba(255,255,255,0.9); padding: 15px; border-radius: 15px; text-align: center; cursor: pointer; transition: all 0.2s ease; }
+        .stat:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
         .stat-number { font-size: 1.8em; font-weight: bold; color: #333; }
         .stat-label { font-size: 0.9em; color: #666; margin-top: 5px; }
         .add-task { background: rgba(255,255,255,0.95); padding: 20px; border-radius: 20px; margin-bottom: 25px; display: flex; gap: 10px; }
@@ -50,20 +51,19 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>TaskFlow</h1>
-            <p>シンプル・高速タスク管理</p>
+            <h1>To Do管理</h1>
         </div>
 
         <div class="stats">
-            <div class="stat">
+            <div class="stat" onclick="setFilter('all')">
                 <div class="stat-number" id="totalTasks">0</div>
                 <div class="stat-label">アクティブ</div>
             </div>
-            <div class="stat">
+            <div class="stat" onclick="setFilter('progress')">
                 <div class="stat-number" id="progressTasks">0</div>
                 <div class="stat-label">進行中</div>
             </div>
-            <div class="stat">
+            <div class="stat" onclick="setFilter('completed')">
                 <div class="stat-number" id="completedTasks">0</div>
                 <div class="stat-label">完了</div>
             </div>
@@ -75,8 +75,7 @@
         </div>
 
         <div class="filters">
-            <button class="filter active" onclick="setFilter('all')">すべて</button>
-            <button class="filter" onclick="setFilter('todo')">未着手</button>
+            <button class="filter active" onclick="setFilter('all')">アクティブ</button>
             <button class="filter" onclick="setFilter('progress')">進行中</button>
             <button class="filter" onclick="setFilter('completed')">完了</button>
         </div>
@@ -144,7 +143,20 @@
         function setFilter(filter) {
             currentFilter = filter;
             document.querySelectorAll('.filter').forEach(f => f.classList.remove('active'));
-            event.target.classList.add('active');
+            
+            // フィルターボタンのアクティブ状態を更新
+            const filterTexts = {
+                'all': 'アクティブ',
+                'progress': '進行中', 
+                'completed': '完了'
+            };
+            
+            document.querySelectorAll('.filter').forEach(f => {
+                if (f.textContent === filterTexts[filter]) {
+                    f.classList.add('active');
+                }
+            });
+            
             renderTasks();
         }
 
