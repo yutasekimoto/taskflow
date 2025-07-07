@@ -24,21 +24,23 @@
         .filter { padding: 10px 20px; background: rgba(255,255,255,0.2); color: white; border: none; border-radius: 25px; cursor: pointer; white-space: nowrap; }
         .filter.active { background: rgba(255,255,255,0.9); color: #667eea; }
         .tasks { space: 15px; }
-        .task { background: rgba(255,255,255,0.95); padding: 20px; margin-bottom: 15px; border-radius: 20px; display: flex; align-items: center; gap: 15px; cursor: move; transition: all 0.2s ease; }
+        .task { background: rgba(255,255,255,0.95); padding: 12px 16px; margin-bottom: 8px; border-radius: 12px; display: flex; align-items: center; gap: 12px; cursor: move; transition: all 0.2s ease; }
         .task:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
         .task.dragging { opacity: 0.5; transform: rotate(2deg); }
         .task.drag-over { border-top: 3px solid #667eea; }
         .task.completed { opacity: 0.6; }
         .task.completed .task-text { text-decoration: line-through; }
-        .task-status { width: 20px; height: 20px; border: 2px solid #ddd; border-radius: 50%; cursor: pointer; flex-shrink: 0; }
+        .task-status { width: 18px; height: 18px; border: 2px solid #ddd; border-radius: 50%; cursor: pointer; flex-shrink: 0; }
         .task-status.todo { border-color: #999; }
         .task-status.progress { border-color: #667eea; background: #667eea; }
         .task-status.completed { border-color: #4CAF50; background: #4CAF50; }
         .task-content { flex: 1; }
-        .task-text { font-size: 16px; margin-bottom: 5px; }
+        .task-text { font-size: 15px; cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: background 0.2s ease; }
+        .task-text:hover { background: rgba(0,0,0,0.05); }
+        .task-text.editing { background: #fff; border: 2px solid #667eea; outline: none; }
         .task-meta { font-size: 12px; color: #666; }
-        .task-actions { display: flex; gap: 12px; }
-        .task-actions button { width: 40px; height: 40px; background: #f8f9fa; border: none; cursor: pointer; border-radius: 50%; color: #6c757d; font-size: 18px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; }
+        .task-actions { display: flex; gap: 8px; }
+        .task-actions button { width: 32px; height: 32px; background: #f8f9fa; border: none; cursor: pointer; border-radius: 50%; color: #6c757d; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; }
         .task-actions button:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
         .task-actions .start { color: #007bff; }
         .task-actions .start:hover { background: #e3f2fd; }
@@ -250,17 +252,136 @@
         }
 
         function getFilteredTasks() {
+            let filtered;
             if (currentFilter === 'all') {
-                return tasks.filter(t => t.status !== 'completed');
+                filtered = tasks.filter(t => t.status !== 'completed');
             } else if (currentFilter === 'progress') {
-                return tasks.filter(t => t.status === 'progress');
+                filtered = tasks.filter(t => t.status === 'progress');
             } else if (currentFilter === 'completed') {
-                return tasks.filter(t => t.status === 'completed');
+                filtered = tasks.filter(t => t.status === 'completed');
+            } else {
+                filtered = tasks;
             }
-            return tasks;
+            
+            // 進行中のタスクを最上位に表示
+            return filtered.sort((a, b) => {
+                if (a.status === 'progress' && b.status !== 'progress') return -1;
+                if (b.status === 'progress' && a.status !== 'progress') return 1;
+                return a.order - b.order;
+            });
         }
 
-        function getTaskActions(task) {
+        // タスク名編集
+        function editTaskName(id) {
+            const task = tasks.find(t => t.id === id);
+            const taskElement = document.querySelector(`[data-task-id="${id}"] .task-text`);
+            
+            taskElement.contentEditable = true;
+            taskElement.classList.add('editing');
+            taskElement.focus();
+            
+            // テキスト全選択
+            const range = document.createRange();
+            range.selectNodeContents(taskElement);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            
+            function finishEdit() {
+                const newText = taskElement.textContent.trim();
+                if (newText && newText !== task.text) {
+                    task.text = newText;
+                    pendingSync.add(id);
+                    scheduleBatchSync();
+                }
+                
+                taskElement.contentEditable = false;
+                taskElement.classList.remove('editing');
+                renderTasks();
+            }
+            
+            taskElement.addEventListener('blur', finishEdit, { once: true });
+            taskElement.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    taskElement.blur();
+                } else if (e.key === 'Escape') {
+                    taskElement.textContent = task.text;
+                    taskElement.blur();
+                }
+            }, { once: true });
+        }
+
+        // ドラッグ&ドロップ処理
+        function handleDragStart(e, index) {
+            draggedTaskIndex = index;
+            e.target.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function handleDragOver(e, index) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            
+            if (draggedTaskIndex !== null && draggedTaskIndex !== index) {
+                e.target.closest('.task').classList.add('drag-over');
+            }
+        }
+
+        function handleDragLeave(e) {
+            e.target.closest('.task').classList.remove('drag-over');
+        }
+
+        function handleDrop(e, dropIndex) {
+            e.preventDefault();
+            e.target.closest('.task').classList.remove('drag-over');
+            
+            if (draggedTaskIndex !== null && draggedTaskIndex !== dropIndex) {
+                const filtered = getFilteredTasks();
+                const draggedTask = filtered[draggedTaskIndex];
+                const dropTask = filtered[dropIndex];
+                
+                // 実際のタスク配列内でのインデックスを取得
+                const draggedOriginalIndex = tasks.findIndex(t => t.id === draggedTask.id);
+                const dropOriginalIndex = tasks.findIndex(t => t.id === dropTask.id);
+                
+                // タスクの順序を更新
+                const newOrder = dropTask.order;
+                draggedTask.order = newOrder;
+                
+                // 他のタスクの順序を調整
+                if (draggedOriginalIndex < dropOriginalIndex) {
+                    // 下に移動
+                    tasks.forEach(task => {
+                        if (task.id !== draggedTask.id && task.order > draggedTask.order && task.order <= newOrder) {
+                            task.order--;
+                        }
+                    });
+                } else {
+                    // 上に移動
+                    tasks.forEach(task => {
+                        if (task.id !== draggedTask.id && task.order >= newOrder && task.order < draggedTask.order) {
+                            task.order++;
+                        }
+                    });
+                }
+                
+                renderTasks();
+                
+                // 変更されたタスクを同期対象に追加
+                pendingSync.add(draggedTask.id);
+                pendingSync.add(dropTask.id);
+                scheduleBatchSync();
+            }
+        }
+
+        function handleDragEnd(e) {
+            e.target.classList.remove('dragging');
+            document.querySelectorAll('.task').forEach(task => {
+                task.classList.remove('drag-over');
+            });
+            draggedTaskIndex = null;
+        }
             let actions = '';
             
             if (task.status === 'todo') {
@@ -281,14 +402,17 @@
             const filtered = getFilteredTasks();
 
             const html = filtered.length ? filtered.map((task, index) => `
-                <div class="task ${task.status}">
+                <div class="task ${task.status}" 
+                     data-task-id="${task.id}"
+                     draggable="true"
+                     ondragstart="handleDragStart(event, ${index})"
+                     ondragover="handleDragOver(event, ${index})"
+                     ondragleave="handleDragLeave(event)"
+                     ondrop="handleDrop(event, ${index})"
+                     ondragend="handleDragEnd(event)">
                     <div class="task-status ${task.status}"></div>
                     <div class="task-content">
-                        <div class="task-text">${task.text}</div>
-                        <div class="task-meta">
-                            ${task.status === 'todo' ? '未着手' : task.status === 'progress' ? '進行中' : '完了'} • ${new Date(task.createdAt).toLocaleString()}
-                            ${task.completedAt ? ` • 完了: ${new Date(task.completedAt).toLocaleString()}` : ''}
-                        </div>
+                        <div class="task-text" onclick="editTaskName(${task.id})" title="クリックして編集">${task.text}</div>
                     </div>
                     <div class="task-actions">
                         ${getTaskActions(task)}
