@@ -105,7 +105,7 @@
 
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <script>
-        console.log('ToDoアプリ ver.2024.1.8 開始');
+        console.log('ToDoアプリ開始 - 修正版');
         
         // Supabase設定
         let supabase = null;
@@ -124,15 +124,13 @@
             console.error('Supabase初期化エラー:', error);
         }
 
-        // アプリケーション状態
+        // グローバル変数
         let tasks = [];
         let currentFilter = 'all';
         let userId = localStorage.getItem('todo_user_id') || generateUserId();
         let draggedTaskIndex = null;
         let pendingSync = new Set();
         let syncTimer = null;
-
-        // スマホ対応: タッチイベント用変数
         let touchStartY = 0;
         let touchCurrentY = 0;
         let isTouching = false;
@@ -143,12 +141,12 @@
             return id;
         }
 
-        function showSyncIndicator(message, isError = false) {
+        function showSyncIndicator(message, isError) {
             const indicator = document.getElementById('syncIndicator');
             if (indicator) {
                 indicator.textContent = message;
                 indicator.className = `sync-indicator show ${isError ? 'error' : ''}`;
-                setTimeout(() => {
+                setTimeout(function() {
                     indicator.classList.remove('show');
                 }, 2000);
             }
@@ -158,7 +156,6 @@
             try {
                 console.log('データ読み込み開始');
                 
-                // ローカルストレージから即座に読み込み
                 const localTasks = localStorage.getItem('taskflow_tasks_' + userId);
                 if (localTasks) {
                     tasks = JSON.parse(localTasks);
@@ -166,7 +163,6 @@
                     renderTasks();
                 }
 
-                // Supabaseが利用可能な場合のみクラウド同期
                 if (supabase) {
                     const { data, error } = await supabase
                         .from('tasks')
@@ -179,14 +175,16 @@
                         showSyncIndicator('同期エラー', true);
                     } else if (data && data.length > 0) {
                         console.log('Supabaseデータ読み込み:', data.length, '件');
-                        tasks = data.map(item => ({
-                            id: item.id,
-                            text: item.text,
-                            status: item.status,
-                            createdAt: item.created_at,
-                            completedAt: item.completed_at,
-                            order: item.order_index
-                        }));
+                        tasks = data.map(function(item) {
+                            return {
+                                id: item.id,
+                                text: item.text,
+                                status: item.status,
+                                createdAt: item.created_at,
+                                completedAt: item.completed_at,
+                                order: item.order_index
+                            };
+                        });
                         renderTasks();
                         localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
                     }
@@ -201,7 +199,7 @@
         function scheduleBatchSync() {
             if (syncTimer) clearTimeout(syncTimer);
             
-            syncTimer = setTimeout(async () => {
+            syncTimer = setTimeout(async function() {
                 if (pendingSync.size > 0) {
                     await performBatchSync();
                 }
@@ -216,8 +214,8 @@
             }
 
             try {
-                const updates = Array.from(pendingSync).map(id => {
-                    const task = tasks.find(t => t.id === id);
+                const updates = Array.from(pendingSync).map(function(id) {
+                    const task = tasks.find(function(t) { return t.id === id; });
                     if (!task) return null;
                     
                     return {
@@ -253,7 +251,7 @@
             }
         }
 
-        async function addTask() {
+        function addTask() {
             console.log('addTask 関数実行');
             
             const input = document.getElementById('newTask');
@@ -291,10 +289,10 @@
             scheduleBatchSync();
         }
 
-        async function changeStatus(id, newStatus) {
+        function changeStatus(id, newStatus) {
             console.log('ステータス変更:', id, newStatus);
             
-            const task = tasks.find(t => t.id === id);
+            const task = tasks.find(function(t) { return t.id === id; });
             if (!task) {
                 console.error('タスクが見つかりません:', id);
                 return;
@@ -313,22 +311,24 @@
             scheduleBatchSync();
         }
 
-        async function deleteTask(id) {
+        function deleteTask(id) {
             console.log('タスク削除:', id);
             
-            tasks = tasks.filter(t => t.id !== id);
+            tasks = tasks.filter(function(t) { return t.id !== id; });
             renderTasks();
 
             if (supabase) {
-                try {
-                    await supabase
-                        .from('tasks')
-                        .delete()
-                        .eq('id', id)
-                        .eq('user_id', userId);
-                } catch (error) {
-                    console.error('削除エラー:', error);
-                }
+                supabase
+                    .from('tasks')
+                    .delete()
+                    .eq('id', id)
+                    .eq('user_id', userId)
+                    .then(function() {
+                        console.log('削除成功');
+                    })
+                    .catch(function(error) {
+                        console.error('削除エラー:', error);
+                    });
             }
 
             localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
@@ -337,7 +337,9 @@
         function setFilter(filter) {
             console.log('フィルター変更:', filter);
             currentFilter = filter;
-            document.querySelectorAll('.filter').forEach(f => f.classList.remove('active'));
+            document.querySelectorAll('.filter').forEach(function(f) {
+                f.classList.remove('active');
+            });
             
             const filterTexts = {
                 'all': 'アクティブ',
@@ -345,7 +347,7 @@
                 'completed': '完了'
             };
             
-            document.querySelectorAll('.filter').forEach(f => {
+            document.querySelectorAll('.filter').forEach(function(f) {
                 if (f.textContent === filterTexts[filter]) {
                     f.classList.add('active');
                 }
@@ -357,200 +359,36 @@
         function getFilteredTasks() {
             let filtered;
             if (currentFilter === 'all') {
-                filtered = tasks.filter(t => t.status !== 'completed');
+                filtered = tasks.filter(function(t) { return t.status !== 'completed'; });
             } else if (currentFilter === 'progress') {
-                filtered = tasks.filter(t => t.status === 'progress');
+                filtered = tasks.filter(function(t) { return t.status === 'progress'; });
             } else if (currentFilter === 'completed') {
-                filtered = tasks.filter(t => t.status === 'completed');
+                filtered = tasks.filter(function(t) { return t.status === 'completed'; });
             } else {
                 filtered = tasks;
             }
             
-            return filtered.sort((a, b) => {
+            return filtered.sort(function(a, b) {
                 if (a.status === 'progress' && b.status !== 'progress') return -1;
                 if (b.status === 'progress' && a.status !== 'progress') return 1;
                 return (a.order || 0) - (b.order || 0);
             });
         }
 
-        function editTaskName(id) {
-            const task = tasks.find(t => t.id === id);
-            const taskElement = document.querySelector(`[data-task-id="${id}"] .task-text`);
-            
-            if (!task || !taskElement) {
-                console.error('編集対象が見つかりません:', id);
-                return;
-            }
-            
-            taskElement.contentEditable = true;
-            taskElement.classList.add('editing');
-            taskElement.focus();
-            
-            const range = document.createRange();
-            range.selectNodeContents(taskElement);
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(range);
-            
-            function finishEdit() {
-                const newText = taskElement.textContent.trim();
-                if (newText && newText !== task.text) {
-                    task.text = newText;
-                    pendingSync.add(id);
-                    scheduleBatchSync();
-                }
-                
-                taskElement.contentEditable = false;
-                taskElement.classList.remove('editing');
-                renderTasks();
-            }
-            
-            taskElement.addEventListener('blur', finishEdit, { once: true });
-            taskElement.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    taskElement.blur();
-                } else if (e.key === 'Escape') {
-                    taskElement.textContent = task.text;
-                    taskElement.blur();
-                }
-            }, { once: true });
-        }
-
-        // ドラッグ&ドロップ処理（PC + スマホ対応）
-        function handleDragStart(e, index) {
-            draggedTaskIndex = index;
-            e.target.classList.add('dragging');
-            if (e.dataTransfer) {
-                e.dataTransfer.effectAllowed = 'move';
-            }
-        }
-
-        function handleTouchStart(e, index) {
-            e.preventDefault();
-            draggedTaskIndex = index;
-            isTouching = true;
-            touchStartY = e.touches[0].clientY;
-            e.target.classList.add('dragging');
-        }
-
-        function handleTouchMove(e) {
-            if (!isTouching || draggedTaskIndex === null) return;
-            
-            e.preventDefault();
-            touchCurrentY = e.touches[0].clientY;
-            
-            const draggedElement = e.target.closest('.task');
-            if (draggedElement) {
-                const moveDistance = touchCurrentY - touchStartY;
-                draggedElement.style.transform = `translateY(${moveDistance}px) rotate(2deg)`;
-            }
-        }
-
-        function handleTouchEnd(e) {
-            if (!isTouching || draggedTaskIndex === null) return;
-            
-            e.preventDefault();
-            isTouching = false;
-            
-            const moveDistance = touchCurrentY - touchStartY;
-            const taskHeight = 60;
-            const moveSteps = Math.round(moveDistance / taskHeight);
-            const dropIndex = Math.max(0, Math.min(getFilteredTasks().length - 1, draggedTaskIndex + moveSteps));
-            
-            if (dropIndex !== draggedTaskIndex) {
-                handleDropLogic(draggedTaskIndex, dropIndex);
-            }
-            
-            const draggedElement = document.querySelector('.task.dragging');
-            if (draggedElement) {
-                draggedElement.style.transform = '';
-                draggedElement.classList.remove('dragging');
-            }
-            
-            draggedTaskIndex = null;
-        }
-
-        function handleDragOver(e, index) {
-            e.preventDefault();
-            if (e.dataTransfer) {
-                e.dataTransfer.dropEffect = 'move';
-            }
-            
-            if (draggedTaskIndex !== null && draggedTaskIndex !== index) {
-                e.target.closest('.task').classList.add('drag-over');
-            }
-        }
-
-        function handleDragLeave(e) {
-            e.target.closest('.task').classList.remove('drag-over');
-        }
-
-        function handleDrop(e, dropIndex) {
-            e.preventDefault();
-            e.target.closest('.task').classList.remove('drag-over');
-            
-            if (draggedTaskIndex !== null && draggedTaskIndex !== dropIndex) {
-                handleDropLogic(draggedTaskIndex, dropIndex);
-            }
-        }
-
-        function handleDropLogic(fromIndex, toIndex) {
-            const filtered = getFilteredTasks();
-            const draggedTask = filtered[fromIndex];
-            const dropTask = filtered[toIndex];
-            
-            if (!draggedTask || !dropTask) return;
-            
-            const draggedOriginalIndex = tasks.findIndex(t => t.id === draggedTask.id);
-            const dropOriginalIndex = tasks.findIndex(t => t.id === dropTask.id);
-            
-            const newOrder = dropTask.order || 0;
-            draggedTask.order = newOrder;
-            
-            if (draggedOriginalIndex < dropOriginalIndex) {
-                tasks.forEach(task => {
-                    if (task.id !== draggedTask.id && (task.order || 0) > (draggedTask.order || 0) && (task.order || 0) <= newOrder) {
-                        task.order = (task.order || 0) - 1;
-                    }
-                });
-            } else {
-                tasks.forEach(task => {
-                    if (task.id !== draggedTask.id && (task.order || 0) >= newOrder && (task.order || 0) < (draggedTask.order || 0)) {
-                        task.order = (task.order || 0) + 1;
-                    }
-                });
-            }
-            
-            renderTasks();
-            
-            pendingSync.add(draggedTask.id);
-            pendingSync.add(dropTask.id);
-            scheduleBatchSync();
-        }
-
-        function handleDragEnd(e) {
-            e.target.classList.remove('dragging');
-            document.querySelectorAll('.task').forEach(task => {
-                task.classList.remove('drag-over');
-            });
-            draggedTaskIndex = null;
-        }
-
         function getTaskActions(task) {
             let actions = '';
             
             if (task.status === 'todo') {
-                actions += `<button class="start" onclick="changeStatus(${task.id}, 'progress')" title="開始">▷</button>`;
-                actions += `<button class="complete" onclick="changeStatus(${task.id}, 'completed')" title="完了">✓</button>`;
+                actions += '<button class="start" onclick="changeStatus(' + task.id + ', \'progress\')" title="開始">▷</button>';
+                actions += '<button class="complete" onclick="changeStatus(' + task.id + ', \'completed\')" title="完了">✓</button>';
             } else if (task.status === 'progress') {
-                actions += `<button class="back" onclick="changeStatus(${task.id}, 'todo')" title="戻す">⏸</button>`;
-                actions += `<button class="complete" onclick="changeStatus(${task.id}, 'completed')" title="完了">✓</button>`;
+                actions += '<button class="back" onclick="changeStatus(' + task.id + ', \'todo\')" title="戻す">⏸</button>';
+                actions += '<button class="complete" onclick="changeStatus(' + task.id + ', \'completed\')" title="完了">✓</button>';
             } else if (task.status === 'completed') {
-                actions += `<button class="back" onclick="changeStatus(${task.id}, 'todo')" title="再開">↻</button>`;
+                actions += '<button class="back" onclick="changeStatus(' + task.id + ', \'todo\')" title="再開">↻</button>';
             }
             
-            actions += `<button class="delete" onclick="deleteTask(${task.id})" title="削除">×</button>`;
+            actions += '<button class="delete" onclick="deleteTask(' + task.id + ')" title="削除">×</button>';
             return actions;
         }
 
@@ -560,27 +398,22 @@
             const filtered = getFilteredTasks();
             console.log('フィルター後:', filtered.length);
 
-            const html = filtered.length ? filtered.map((task, index) => `
-                <div class="task ${task.status}" 
-                     data-task-id="${task.id}"
-                     draggable="true"
-                     ondragstart="handleDragStart(event, ${index})"
-                     ondragover="handleDragOver(event, ${index})"
-                     ondragleave="handleDragLeave(event)"
-                     ondrop="handleDrop(event, ${index})"
-                     ondragend="handleDragEnd(event)"
-                     ontouchstart="handleTouchStart(event, ${index})"
-                     ontouchmove="handleTouchMove(event)"
-                     ontouchend="handleTouchEnd(event)">
-                    <div class="task-status ${task.status}"></div>
-                    <div class="task-content">
-                        <div class="task-text" onclick="editTaskName(${task.id})" title="クリックして編集">${task.text}</div>
-                    </div>
-                    <div class="task-actions">
-                        ${getTaskActions(task)}
-                    </div>
-                </div>
-            `).join('') : '<div class="empty">タスクがありません</div>';
+            let html;
+            if (filtered.length) {
+                html = filtered.map(function(task, index) {
+                    return '<div class="task ' + task.status + '" data-task-id="' + task.id + '">' +
+                        '<div class="task-status ' + task.status + '"></div>' +
+                        '<div class="task-content">' +
+                            '<div class="task-text" onclick="editTaskName(' + task.id + ')" title="クリックして編集">' + task.text + '</div>' +
+                        '</div>' +
+                        '<div class="task-actions">' +
+                            getTaskActions(task) +
+                        '</div>' +
+                    '</div>';
+                }).join('');
+            } else {
+                html = '<div class="empty">タスクがありません</div>';
+            }
 
             const taskList = document.getElementById('taskList');
             if (taskList) {
@@ -598,18 +431,33 @@
             const progressElement = document.getElementById('progressTasks');
             const completedElement = document.getElementById('completedTasks');
             
-            if (totalElement) totalElement.textContent = tasks.filter(t => t.status !== 'completed').length;
-            if (progressElement) progressElement.textContent = tasks.filter(t => t.status === 'progress').length;
-            if (completedElement) completedElement.textContent = tasks.filter(t => t.status === 'completed').length;
+            if (totalElement) totalElement.textContent = tasks.filter(function(t) { return t.status !== 'completed'; }).length;
+            if (progressElement) progressElement.textContent = tasks.filter(function(t) { return t.status === 'progress'; }).length;
+            if (completedElement) completedElement.textContent = tasks.filter(function(t) { return t.status === 'completed'; }).length;
+        }
+
+        function editTaskName(id) {
+            console.log('タスク編集開始:', id);
+            // 簡易実装
+            const newText = prompt('新しいタスク名を入力してください');
+            if (newText && newText.trim()) {
+                const task = tasks.find(function(t) { return t.id === id; });
+                if (task) {
+                    task.text = newText.trim();
+                    renderTasks();
+                    pendingSync.add(id);
+                    scheduleBatchSync();
+                }
+            }
         }
 
         // イベントリスナー
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', function() {
             console.log('DOM読み込み完了');
             
             const newTaskInput = document.getElementById('newTask');
             if (newTaskInput) {
-                newTaskInput.addEventListener('keypress', e => {
+                newTaskInput.addEventListener('keypress', function(e) {
                     if (e.key === 'Enter') {
                         console.log('Enterキー押下');
                         addTask();
@@ -618,17 +466,17 @@
             } else {
                 console.error('newTask要素が見つかりません');
             }
+
+            // 初期化
+            console.log('初期化開始');
+            loadTasks();
         });
 
-        window.addEventListener('beforeunload', () => {
+        window.addEventListener('beforeunload', function() {
             if (pendingSync.size > 0) {
                 localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
             }
         });
-
-        // 初期化
-        console.log('初期化開始');
-        loadTasks();
     </script>
 </body>
 </html>
