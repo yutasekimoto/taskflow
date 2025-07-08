@@ -38,6 +38,7 @@
         .task-text { font-size: 15px; cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: background 0.2s ease; }
         .task-text:hover { background: rgba(0,0,0,0.05); }
         .task-text.editing { background: #fff; border: 2px solid #667eea; outline: none; }
+        .task-meta { font-size: 12px; color: #666; }
         .task-actions { display: flex; gap: 8px; }
         .task-actions button { width: 32px; height: 32px; background: #f8f9fa; border: none; cursor: pointer; border-radius: 50%; color: #6c757d; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; }
         .task-actions button:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
@@ -103,7 +104,25 @@
 
     <div class="sync-indicator" id="syncIndicator"></div>
 
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <script>
+        // Supabase設定（エラーハンドリング付き）
+        let supabase = null;
+        
+        try {
+            const SUPABASE_URL = 'https://hsekpmpboawozvuwscf.supabase.co';
+            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhzZWtwbXBib2F3b3p2dXdzY2YiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTczNjI2MjEzOCwiZXhwIjoyMDUxODM4MTM4fQ.GwYmQGdFw0f6Zv8iLUcRgf6rF2wX5zBpzF2_A9xAP7s';
+            
+            if (window.supabase && window.supabase.createClient) {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log('Supabase初期化成功');
+            } else {
+                console.warn('Supabaseライブラリが読み込まれていません。ローカルストレージのみで動作します。');
+            }
+        } catch (error) {
+            console.error('Supabase初期化エラー:', error);
+        }
+
         // インメモリでの高速処理 + バックグラウンド同期
         let tasks = [];
         let currentFilter = 'all';
@@ -131,18 +150,47 @@
         // 初期データ読み込み
         async function loadTasks() {
             try {
+                console.log('データ読み込み開始, userId:', userId);
+                
                 // ローカルストレージから即座に読み込み
-                const localTasks = localStorage.getItem('taskflow_tasks');
+                const localTasks = localStorage.getItem('taskflow_tasks_' + userId);
                 if (localTasks) {
                     tasks = JSON.parse(localTasks);
+                    console.log('ローカルデータ読み込み:', tasks.length, '件');
                     renderTasks();
                 }
 
-                // バックグラウンドでクラウドデータと同期
-                // 実際のSupabaseコードは削除（デモ用）
-                // const { data, error } = await supabase.from('tasks')...
+                // Supabaseが利用可能な場合のみクラウド同期
+                if (supabase) {
+                    const { data, error } = await supabase
+                        .from('tasks')
+                        .select('*')
+                        .eq('user_id', userId)
+                        .order('order_index', { ascending: true });
+
+                    if (error) {
+                        console.error('Supabase読み込みエラー:', error);
+                        showSyncIndicator('同期エラー', true);
+                    } else {
+                        console.log('Supabaseデータ読み込み:', data?.length || 0, '件');
+                        if (data && data.length > 0) {
+                            // Supabaseのデータ構造をローカル形式に変換
+                            tasks = data.map(item => ({
+                                id: item.id,
+                                text: item.text,
+                                status: item.status,
+                                createdAt: item.created_at,
+                                completedAt: item.completed_at,
+                                order: item.order_index
+                            }));
+                            renderTasks();
+                            // ローカルストレージも更新
+                            localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
+                        }
+                    }
+                }
                 
-                console.log('クラウドデータ同期完了');
+                console.log('データ同期完了');
             } catch (error) {
                 console.error('データ読み込みエラー:', error);
                 showSyncIndicator('同期エラー', true);
@@ -161,19 +209,54 @@
         }
 
         async function performBatchSync() {
+            if (!supabase) {
+                // Supabaseが利用できない場合はローカルストレージのみ
+                localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
+                pendingSync.clear();
+                return;
+            }
+
             try {
-                // 実際のSupabaseコードはここに実装
-                // const updates = Array.from(pendingSync).map(id => tasks.find(t => t.id === id));
-                // await supabase.from('tasks').upsert(updates);
+                console.log('バッチ同期開始, 対象:', pendingSync.size, '件');
+                
+                const updates = Array.from(pendingSync).map(id => {
+                    const task = tasks.find(t => t.id === id);
+                    if (!task) return null;
+                    
+                    return {
+                        id: task.id,
+                        user_id: userId,
+                        text: task.text,
+                        status: task.status,
+                        created_at: task.createdAt,
+                        completed_at: task.completedAt,
+                        order_index: task.order || 0
+                    };
+                }).filter(Boolean);
+
+                if (updates.length > 0) {
+                    const { data, error } = await supabase
+                        .from('tasks')
+                        .upsert(updates, { onConflict: 'id' });
+
+                    if (error) {
+                        console.error('Supabase保存エラー:', error);
+                        showSyncIndicator('同期エラー', true);
+                    } else {
+                        console.log('Supabase保存成功:', updates.length, '件');
+                    }
+                }
                 
                 pendingSync.clear();
                 console.log('バッチ同期完了');
                 
-                // ローカルストレージに保存
-                localStorage.setItem('taskflow_tasks', JSON.stringify(tasks));
+                // ローカルストレージに保存（ユーザー別）
+                localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
             } catch (error) {
                 console.error('バッチ同期エラー:', error);
                 showSyncIndicator('同期エラー', true);
+                // エラーの場合もローカルストレージには保存
+                localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
             }
         }
 
@@ -182,6 +265,8 @@
             const input = document.getElementById('newTask');
             const text = input.value.trim();
             if (!text) return;
+
+            console.log('タスク追加:', text);
 
             const task = {
                 id: Date.now(),
@@ -196,6 +281,8 @@
             tasks.push(task);
             input.value = '';
             renderTasks();
+
+            console.log('タスク追加完了, 現在のタスク数:', tasks.length);
 
             // バックグラウンドで同期
             pendingSync.add(task.id);
@@ -223,12 +310,32 @@
 
         // タスク削除（即座にUI更新）
         async function deleteTask(id) {
+            console.log('タスク削除:', id);
+            
             tasks = tasks.filter(t => t.id !== id);
             renderTasks();
 
-            // バックグラウンドで同期
-            pendingSync.add(id);
-            scheduleBatchSync();
+            // Supabaseからも削除（利用可能な場合のみ）
+            if (supabase) {
+                try {
+                    const { error } = await supabase
+                        .from('tasks')
+                        .delete()
+                        .eq('id', id)
+                        .eq('user_id', userId);
+
+                    if (error) {
+                        console.error('Supabase削除エラー:', error);
+                    } else {
+                        console.log('Supabase削除成功:', id);
+                    }
+                } catch (error) {
+                    console.error('削除処理エラー:', error);
+                }
+            }
+
+            // ローカルストレージも更新
+            localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
         }
 
         function setFilter(filter) {
@@ -311,16 +418,74 @@
             }, { once: true });
         }
 
-        // ドラッグ&ドロップ処理
+        // スマホ対応: タッチイベント用変数
+        let touchStartY = 0;
+        let touchCurrentY = 0;
+        let isTouching = false;
+
+        // ドラッグ&ドロップ処理（PC + スマホ対応）
         function handleDragStart(e, index) {
             draggedTaskIndex = index;
             e.target.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'move';
+            if (e.dataTransfer) {
+                e.dataTransfer.effectAllowed = 'move';
+            }
+        }
+
+        function handleTouchStart(e, index) {
+            e.preventDefault();
+            draggedTaskIndex = index;
+            isTouching = true;
+            touchStartY = e.touches[0].clientY;
+            e.target.classList.add('dragging');
+        }
+
+        function handleTouchMove(e) {
+            if (!isTouching || draggedTaskIndex === null) return;
+            
+            e.preventDefault();
+            touchCurrentY = e.touches[0].clientY;
+            
+            // ドラッグ中の要素を指の位置に追従させる
+            const draggedElement = e.target.closest('.task');
+            if (draggedElement) {
+                const moveDistance = touchCurrentY - touchStartY;
+                draggedElement.style.transform = `translateY(${moveDistance}px) rotate(2deg)`;
+            }
+        }
+
+        function handleTouchEnd(e) {
+            if (!isTouching || draggedTaskIndex === null) return;
+            
+            e.preventDefault();
+            isTouching = false;
+            
+            // ドロップ先を特定
+            const moveDistance = touchCurrentY - touchStartY;
+            const taskHeight = 60; // 大体のタスク高さ
+            const moveSteps = Math.round(moveDistance / taskHeight);
+            const dropIndex = Math.max(0, Math.min(getFilteredTasks().length - 1, draggedTaskIndex + moveSteps));
+            
+            // ドロップ処理実行
+            if (dropIndex !== draggedTaskIndex) {
+                handleDropLogic(draggedTaskIndex, dropIndex);
+            }
+            
+            // 見た目をリセット
+            const draggedElement = document.querySelector('.task.dragging');
+            if (draggedElement) {
+                draggedElement.style.transform = '';
+                draggedElement.classList.remove('dragging');
+            }
+            
+            draggedTaskIndex = null;
         }
 
         function handleDragOver(e, index) {
             e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
+            if (e.dataTransfer) {
+                e.dataTransfer.dropEffect = 'move';
+            }
             
             if (draggedTaskIndex !== null && draggedTaskIndex !== index) {
                 e.target.closest('.task').classList.add('drag-over');
@@ -336,42 +501,46 @@
             e.target.closest('.task').classList.remove('drag-over');
             
             if (draggedTaskIndex !== null && draggedTaskIndex !== dropIndex) {
-                const filtered = getFilteredTasks();
-                const draggedTask = filtered[draggedTaskIndex];
-                const dropTask = filtered[dropIndex];
-                
-                // 実際のタスク配列内でのインデックスを取得
-                const draggedOriginalIndex = tasks.findIndex(t => t.id === draggedTask.id);
-                const dropOriginalIndex = tasks.findIndex(t => t.id === dropTask.id);
-                
-                // タスクの順序を更新
-                const newOrder = dropTask.order || 0;
-                draggedTask.order = newOrder;
-                
-                // 他のタスクの順序を調整
-                if (draggedOriginalIndex < dropOriginalIndex) {
-                    // 下に移動
-                    tasks.forEach(task => {
-                        if (task.id !== draggedTask.id && (task.order || 0) > (draggedTask.order || 0) && (task.order || 0) <= newOrder) {
-                            task.order = (task.order || 0) - 1;
-                        }
-                    });
-                } else {
-                    // 上に移動
-                    tasks.forEach(task => {
-                        if (task.id !== draggedTask.id && (task.order || 0) >= newOrder && (task.order || 0) < (draggedTask.order || 0)) {
-                            task.order = (task.order || 0) + 1;
-                        }
-                    });
-                }
-                
-                renderTasks();
-                
-                // 変更されたタスクを同期対象に追加
-                pendingSync.add(draggedTask.id);
-                pendingSync.add(dropTask.id);
-                scheduleBatchSync();
+                handleDropLogic(draggedTaskIndex, dropIndex);
             }
+        }
+
+        function handleDropLogic(fromIndex, toIndex) {
+            const filtered = getFilteredTasks();
+            const draggedTask = filtered[fromIndex];
+            const dropTask = filtered[toIndex];
+            
+            // 実際のタスク配列内でのインデックスを取得
+            const draggedOriginalIndex = tasks.findIndex(t => t.id === draggedTask.id);
+            const dropOriginalIndex = tasks.findIndex(t => t.id === dropTask.id);
+            
+            // タスクの順序を更新
+            const newOrder = dropTask.order || 0;
+            draggedTask.order = newOrder;
+            
+            // 他のタスクの順序を調整
+            if (draggedOriginalIndex < dropOriginalIndex) {
+                // 下に移動
+                tasks.forEach(task => {
+                    if (task.id !== draggedTask.id && (task.order || 0) > (draggedTask.order || 0) && (task.order || 0) <= newOrder) {
+                        task.order = (task.order || 0) - 1;
+                    }
+                });
+            } else {
+                // 上に移動
+                tasks.forEach(task => {
+                    if (task.id !== draggedTask.id && (task.order || 0) >= newOrder && (task.order || 0) < (draggedTask.order || 0)) {
+                        task.order = (task.order || 0) + 1;
+                    }
+                });
+            }
+            
+            renderTasks();
+            
+            // 変更されたタスクを同期対象に追加
+            pendingSync.add(draggedTask.id);
+            pendingSync.add(dropTask.id);
+            scheduleBatchSync();
         }
 
         function handleDragEnd(e) {
@@ -381,7 +550,6 @@
             });
             draggedTaskIndex = null;
         }
-
         function getTaskActions(task) {
             let actions = '';
             
@@ -410,7 +578,10 @@
                      ondragover="handleDragOver(event, ${index})"
                      ondragleave="handleDragLeave(event)"
                      ondrop="handleDrop(event, ${index})"
-                     ondragend="handleDragEnd(event)">
+                     ondragend="handleDragEnd(event)"
+                     ontouchstart="handleTouchStart(event, ${index})"
+                     ontouchmove="handleTouchMove(event)"
+                     ontouchend="handleTouchEnd(event)">
                     <div class="task-status ${task.status}"></div>
                     <div class="task-content">
                         <div class="task-text" onclick="editTaskName(${task.id})" title="クリックして編集">${task.text}</div>
@@ -441,7 +612,7 @@
         // ページを離れる前に未同期データを保存
         window.addEventListener('beforeunload', () => {
             if (pendingSync.size > 0) {
-                localStorage.setItem('taskflow_tasks', JSON.stringify(tasks));
+                localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
             }
         });
     </script>
