@@ -38,7 +38,6 @@
         .task-text { font-size: 15px; cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: background 0.2s ease; }
         .task-text:hover { background: rgba(0,0,0,0.05); }
         .task-text.editing { background: #fff; border: 2px solid #667eea; outline: none; }
-        .task-meta { font-size: 12px; color: #666; }
         .task-actions { display: flex; gap: 8px; }
         .task-actions button { width: 32px; height: 32px; background: #f8f9fa; border: none; cursor: pointer; border-radius: 50%; color: #6c757d; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; }
         .task-actions button:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
@@ -267,7 +266,7 @@
             return filtered.sort((a, b) => {
                 if (a.status === 'progress' && b.status !== 'progress') return -1;
                 if (b.status === 'progress' && a.status !== 'progress') return 1;
-                return a.order - b.order;
+                return (a.order || 0) - (b.order || 0);
             });
         }
 
@@ -346,22 +345,22 @@
                 const dropOriginalIndex = tasks.findIndex(t => t.id === dropTask.id);
                 
                 // タスクの順序を更新
-                const newOrder = dropTask.order;
+                const newOrder = dropTask.order || 0;
                 draggedTask.order = newOrder;
                 
                 // 他のタスクの順序を調整
                 if (draggedOriginalIndex < dropOriginalIndex) {
                     // 下に移動
                     tasks.forEach(task => {
-                        if (task.id !== draggedTask.id && task.order > draggedTask.order && task.order <= newOrder) {
-                            task.order--;
+                        if (task.id !== draggedTask.id && (task.order || 0) > (draggedTask.order || 0) && (task.order || 0) <= newOrder) {
+                            task.order = (task.order || 0) - 1;
                         }
                     });
                 } else {
                     // 上に移動
                     tasks.forEach(task => {
-                        if (task.id !== draggedTask.id && task.order >= newOrder && task.order < draggedTask.order) {
-                            task.order++;
+                        if (task.id !== draggedTask.id && (task.order || 0) >= newOrder && (task.order || 0) < (draggedTask.order || 0)) {
+                            task.order = (task.order || 0) + 1;
                         }
                     });
                 }
@@ -382,6 +381,8 @@
             });
             draggedTaskIndex = null;
         }
+
+        function getTaskActions(task) {
             let actions = '';
             
             if (task.status === 'todo') {
