@@ -105,14 +105,30 @@
 
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <script>
-        console.log('ToDoアプリ開始 - 修正版');
+        console.log('ToDoアプリ開始 - 最終修正版');
         
+        // グローバル変数
+        var tasks = [];
+        var currentFilter = 'all';
+        var userId = localStorage.getItem('todo_user_id') || generateUserId();
+        var draggedTaskIndex = null;
+        var pendingSync = new Set();
+        var syncTimer = null;
+        var touchStartY = 0;
+        var touchCurrentY = 0;
+        var isTouching = false;
+        var supabase = null;
+
+        function generateUserId() {
+            var id = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('todo_user_id', id);
+            return id;
+        }
+
         // Supabase設定
-        let supabase = null;
-        
         try {
-            const SUPABASE_URL = 'https://hsekpmpboawozvuwscf.supabase.co';
-            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhzZWtwbXBib2F3b3p2dXdzY2YiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTczNjI2MjEzOCwiZXhwIjoyMDUxODM4MTM4fQ.GwYmQGdFw0f6Zv8iLUcRgf6rF2wX5zBpzF2_A9xAP7s';
+            var SUPABASE_URL = 'https://hsekpmpboawozvuwscf.supabase.co';
+            var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhzZWtwbXBib2F3b3p2dXdzY2YiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTczNjI2MjEzOCwiZXhwIjoyMDUxODM4MTM4fQ.GwYmQGdFw0f6Zv8iLUcRgf6rF2wX5zBpzF2_A9xAP7s';
             
             if (window.supabase && window.supabase.createClient) {
                 supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -124,143 +140,27 @@
             console.error('Supabase初期化エラー:', error);
         }
 
-        // グローバル変数
-        let tasks = [];
-        let currentFilter = 'all';
-        let userId = localStorage.getItem('todo_user_id') || generateUserId();
-        let draggedTaskIndex = null;
-        let pendingSync = new Set();
-        let syncTimer = null;
-        let touchStartY = 0;
-        let touchCurrentY = 0;
-        let isTouching = false;
-
-        function generateUserId() {
-            const id = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-            localStorage.setItem('todo_user_id', id);
-            return id;
-        }
-
         function showSyncIndicator(message, isError) {
-            const indicator = document.getElementById('syncIndicator');
+            var indicator = document.getElementById('syncIndicator');
             if (indicator) {
                 indicator.textContent = message;
-                indicator.className = `sync-indicator show ${isError ? 'error' : ''}`;
+                indicator.className = 'sync-indicator show' + (isError ? ' error' : '');
                 setTimeout(function() {
                     indicator.classList.remove('show');
                 }, 2000);
             }
         }
 
-        async function loadTasks() {
-            try {
-                console.log('データ読み込み開始');
-                
-                const localTasks = localStorage.getItem('taskflow_tasks_' + userId);
-                if (localTasks) {
-                    tasks = JSON.parse(localTasks);
-                    console.log('ローカルデータ読み込み:', tasks.length, '件');
-                    renderTasks();
-                }
-
-                if (supabase) {
-                    const { data, error } = await supabase
-                        .from('tasks')
-                        .select('*')
-                        .eq('user_id', userId)
-                        .order('order_index', { ascending: true });
-
-                    if (error) {
-                        console.error('Supabase読み込みエラー:', error);
-                        showSyncIndicator('同期エラー', true);
-                    } else if (data && data.length > 0) {
-                        console.log('Supabaseデータ読み込み:', data.length, '件');
-                        tasks = data.map(function(item) {
-                            return {
-                                id: item.id,
-                                text: item.text,
-                                status: item.status,
-                                createdAt: item.created_at,
-                                completedAt: item.completed_at,
-                                order: item.order_index
-                            };
-                        });
-                        renderTasks();
-                        localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
-                    }
-                }
-                console.log('データ読み込み完了');
-            } catch (error) {
-                console.error('loadTasks エラー:', error);
-                showSyncIndicator('同期エラー', true);
-            }
-        }
-
-        function scheduleBatchSync() {
-            if (syncTimer) clearTimeout(syncTimer);
-            
-            syncTimer = setTimeout(async function() {
-                if (pendingSync.size > 0) {
-                    await performBatchSync();
-                }
-            }, 1000);
-        }
-
-        async function performBatchSync() {
-            if (!supabase) {
-                localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
-                pendingSync.clear();
-                return;
-            }
-
-            try {
-                const updates = Array.from(pendingSync).map(function(id) {
-                    const task = tasks.find(function(t) { return t.id === id; });
-                    if (!task) return null;
-                    
-                    return {
-                        id: task.id,
-                        user_id: userId,
-                        text: task.text,
-                        status: task.status,
-                        created_at: task.createdAt,
-                        completed_at: task.completedAt,
-                        order_index: task.order || 0
-                    };
-                }).filter(Boolean);
-
-                if (updates.length > 0) {
-                    const { error } = await supabase
-                        .from('tasks')
-                        .upsert(updates, { onConflict: 'id' });
-
-                    if (error) {
-                        console.error('Supabase保存エラー:', error);
-                        showSyncIndicator('同期エラー', true);
-                    } else {
-                        console.log('Supabase保存成功:', updates.length, '件');
-                    }
-                }
-                
-                pendingSync.clear();
-                localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
-            } catch (error) {
-                console.error('performBatchSync エラー:', error);
-                showSyncIndicator('同期エラー', true);
-                localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
-            }
-        }
-
         function addTask() {
             console.log('addTask 関数実行');
             
-            const input = document.getElementById('newTask');
+            var input = document.getElementById('newTask');
             if (!input) {
                 console.error('入力要素が見つかりません');
                 return;
             }
             
-            const text = input.value.trim();
+            var text = input.value.trim();
             console.log('入力テキスト:', text);
             
             if (!text) {
@@ -268,7 +168,7 @@
                 return;
             }
 
-            const task = {
+            var task = {
                 id: Date.now(),
                 text: text,
                 status: 'todo',
@@ -292,7 +192,14 @@
         function changeStatus(id, newStatus) {
             console.log('ステータス変更:', id, newStatus);
             
-            const task = tasks.find(function(t) { return t.id === id; });
+            var task = null;
+            for (var i = 0; i < tasks.length; i++) {
+                if (tasks[i].id === id) {
+                    task = tasks[i];
+                    break;
+                }
+            }
+            
             if (!task) {
                 console.error('タスクが見つかりません:', id);
                 return;
@@ -314,7 +221,14 @@
         function deleteTask(id) {
             console.log('タスク削除:', id);
             
-            tasks = tasks.filter(function(t) { return t.id !== id; });
+            var newTasks = [];
+            for (var i = 0; i < tasks.length; i++) {
+                if (tasks[i].id !== id) {
+                    newTasks.push(tasks[i]);
+                }
+            }
+            tasks = newTasks;
+            
             renderTasks();
 
             if (supabase) {
@@ -337,46 +251,64 @@
         function setFilter(filter) {
             console.log('フィルター変更:', filter);
             currentFilter = filter;
-            document.querySelectorAll('.filter').forEach(function(f) {
-                f.classList.remove('active');
-            });
             
-            const filterTexts = {
+            var filters = document.querySelectorAll('.filter');
+            for (var i = 0; i < filters.length; i++) {
+                filters[i].classList.remove('active');
+            }
+            
+            var filterTexts = {
                 'all': 'アクティブ',
                 'progress': '進行中', 
                 'completed': '完了'
             };
             
-            document.querySelectorAll('.filter').forEach(function(f) {
-                if (f.textContent === filterTexts[filter]) {
-                    f.classList.add('active');
+            for (var i = 0; i < filters.length; i++) {
+                if (filters[i].textContent === filterTexts[filter]) {
+                    filters[i].classList.add('active');
                 }
-            });
+            }
             
             renderTasks();
         }
 
         function getFilteredTasks() {
-            let filtered;
+            var filtered = [];
+            
             if (currentFilter === 'all') {
-                filtered = tasks.filter(function(t) { return t.status !== 'completed'; });
+                for (var i = 0; i < tasks.length; i++) {
+                    if (tasks[i].status !== 'completed') {
+                        filtered.push(tasks[i]);
+                    }
+                }
             } else if (currentFilter === 'progress') {
-                filtered = tasks.filter(function(t) { return t.status === 'progress'; });
+                for (var i = 0; i < tasks.length; i++) {
+                    if (tasks[i].status === 'progress') {
+                        filtered.push(tasks[i]);
+                    }
+                }
             } else if (currentFilter === 'completed') {
-                filtered = tasks.filter(function(t) { return t.status === 'completed'; });
+                for (var i = 0; i < tasks.length; i++) {
+                    if (tasks[i].status === 'completed') {
+                        filtered.push(tasks[i]);
+                    }
+                }
             } else {
-                filtered = tasks;
+                filtered = tasks.slice();
             }
             
-            return filtered.sort(function(a, b) {
+            // ソート
+            filtered.sort(function(a, b) {
                 if (a.status === 'progress' && b.status !== 'progress') return -1;
                 if (b.status === 'progress' && a.status !== 'progress') return 1;
                 return (a.order || 0) - (b.order || 0);
             });
+            
+            return filtered;
         }
 
         function getTaskActions(task) {
-            let actions = '';
+            var actions = '';
             
             if (task.status === 'todo') {
                 actions += '<button class="start" onclick="changeStatus(' + task.id + ', \'progress\')" title="開始">▷</button>';
@@ -395,13 +327,14 @@
         function renderTasks() {
             console.log('renderTasks 実行, タスク数:', tasks.length);
             
-            const filtered = getFilteredTasks();
+            var filtered = getFilteredTasks();
             console.log('フィルター後:', filtered.length);
 
-            let html;
+            var html = '';
             if (filtered.length) {
-                html = filtered.map(function(task, index) {
-                    return '<div class="task ' + task.status + '" data-task-id="' + task.id + '">' +
+                for (var i = 0; i < filtered.length; i++) {
+                    var task = filtered[i];
+                    html += '<div class="task ' + task.status + '" data-task-id="' + task.id + '">' +
                         '<div class="task-status ' + task.status + '"></div>' +
                         '<div class="task-content">' +
                             '<div class="task-text" onclick="editTaskName(' + task.id + ')" title="クリックして編集">' + task.text + '</div>' +
@@ -410,12 +343,12 @@
                             getTaskActions(task) +
                         '</div>' +
                     '</div>';
-                }).join('');
+                }
             } else {
                 html = '<div class="empty">タスクがありません</div>';
             }
 
-            const taskList = document.getElementById('taskList');
+            var taskList = document.getElementById('taskList');
             if (taskList) {
                 taskList.innerHTML = html;
                 console.log('HTML更新完了');
@@ -427,35 +360,74 @@
         }
 
         function updateStats() {
-            const totalElement = document.getElementById('totalTasks');
-            const progressElement = document.getElementById('progressTasks');
-            const completedElement = document.getElementById('completedTasks');
+            var totalElement = document.getElementById('totalTasks');
+            var progressElement = document.getElementById('progressTasks');
+            var completedElement = document.getElementById('completedTasks');
             
-            if (totalElement) totalElement.textContent = tasks.filter(function(t) { return t.status !== 'completed'; }).length;
-            if (progressElement) progressElement.textContent = tasks.filter(function(t) { return t.status === 'progress'; }).length;
-            if (completedElement) completedElement.textContent = tasks.filter(function(t) { return t.status === 'completed'; }).length;
+            var totalCount = 0;
+            var progressCount = 0;
+            var completedCount = 0;
+            
+            for (var i = 0; i < tasks.length; i++) {
+                if (tasks[i].status === 'progress') {
+                    progressCount++;
+                } else if (tasks[i].status === 'completed') {
+                    completedCount++;
+                }
+                
+                if (tasks[i].status !== 'completed') {
+                    totalCount++;
+                }
+            }
+            
+            if (totalElement) totalElement.textContent = totalCount;
+            if (progressElement) progressElement.textContent = progressCount;
+            if (completedElement) completedElement.textContent = completedCount;
         }
 
         function editTaskName(id) {
             console.log('タスク編集開始:', id);
-            // 簡易実装
-            const newText = prompt('新しいタスク名を入力してください');
+            var newText = prompt('新しいタスク名を入力してください');
             if (newText && newText.trim()) {
-                const task = tasks.find(function(t) { return t.id === id; });
-                if (task) {
-                    task.text = newText.trim();
-                    renderTasks();
-                    pendingSync.add(id);
-                    scheduleBatchSync();
+                for (var i = 0; i < tasks.length; i++) {
+                    if (tasks[i].id === id) {
+                        tasks[i].text = newText.trim();
+                        break;
+                    }
                 }
+                renderTasks();
+                pendingSync.add(id);
+                scheduleBatchSync();
             }
         }
 
-        // イベントリスナー
-        document.addEventListener('DOMContentLoaded', function() {
+        function loadTasks() {
+            try {
+                console.log('データ読み込み開始');
+                
+                var localTasks = localStorage.getItem('taskflow_tasks_' + userId);
+                if (localTasks) {
+                    tasks = JSON.parse(localTasks);
+                    console.log('ローカルデータ読み込み:', tasks.length, '件');
+                    renderTasks();
+                }
+
+                console.log('データ読み込み完了');
+            } catch (error) {
+                console.error('loadTasks エラー:', error);
+            }
+        }
+
+        function scheduleBatchSync() {
+            // 簡略化
+            localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
+        }
+
+        // 初期化
+        window.addEventListener('DOMContentLoaded', function() {
             console.log('DOM読み込み完了');
             
-            const newTaskInput = document.getElementById('newTask');
+            var newTaskInput = document.getElementById('newTask');
             if (newTaskInput) {
                 newTaskInput.addEventListener('keypress', function(e) {
                     if (e.key === 'Enter') {
@@ -463,19 +435,10 @@
                         addTask();
                     }
                 });
-            } else {
-                console.error('newTask要素が見つかりません');
             }
 
-            // 初期化
             console.log('初期化開始');
             loadTasks();
-        });
-
-        window.addEventListener('beforeunload', function() {
-            if (pendingSync.size > 0) {
-                localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
-            }
         });
     </script>
 </body>
