@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>To Do管理</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="To Do管理">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: linear-gradient(135deg, #2d5a27 0%, #1e3f1a 100%); min-height: 100vh; padding: 20px; }
@@ -22,8 +24,10 @@
         .filter { padding: 10px 20px; background: rgba(255,255,255,0.2); color: white; border: none; border-radius: 25px; cursor: pointer; white-space: nowrap; }
         .filter.active { background: rgba(255,255,255,0.9); color: #667eea; }
         .tasks { space: 15px; }
-        .task { background: rgba(255,255,255,0.95); padding: 12px 16px; margin-bottom: 8px; border-radius: 12px; display: flex; align-items: center; gap: 12px; transition: all 0.2s ease; }
+        .task { background: rgba(255,255,255,0.95); padding: 12px 16px; margin-bottom: 8px; border-radius: 12px; display: flex; align-items: center; gap: 12px; cursor: move; transition: all 0.2s ease; }
         .task:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .task.dragging { opacity: 0.5; transform: rotate(2deg); }
+        .task.drag-over { border-top: 3px solid #667eea; }
         .task.completed { opacity: 0.6; }
         .task.completed .task-text { text-decoration: line-through; }
         .task-status { width: 18px; height: 18px; border: 2px solid #ddd; border-radius: 50%; cursor: pointer; flex-shrink: 0; }
@@ -33,6 +37,7 @@
         .task-content { flex: 1; }
         .task-text { font-size: 15px; cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: background 0.2s ease; }
         .task-text:hover { background: rgba(0,0,0,0.05); }
+        .task-text.editing { background: #fff; border: 2px solid #667eea; outline: none; }
         .task-actions { display: flex; gap: 8px; }
         .task-actions button { width: 32px; height: 32px; background: #f8f9fa; border: none; cursor: pointer; border-radius: 50%; color: #6c757d; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; }
         .task-actions button:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
@@ -45,25 +50,38 @@
         .task-actions .back { color: #fd7e14; }
         .task-actions .back:hover { background: #fff3cd; }
         .empty { text-align: center; padding: 40px; color: rgba(255,255,255,0.8); }
+        .sync-indicator { 
+            position: fixed; 
+            top: 20px; 
+            right: 20px; 
+            background: rgba(255,255,255,0.9); 
+            padding: 8px 12px; 
+            border-radius: 20px; 
+            font-size: 12px; 
+            opacity: 0; 
+            transition: opacity 0.3s ease; 
+            z-index: 1000;
+        }
+        .sync-indicator.show { opacity: 1; }
+        .sync-indicator.error { background: #f8d7da; color: #721c24; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>To Do管理</h1>
-            <div style="font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 5px;">v2024.1.8.5 - 名前空間版</div>
         </div>
 
         <div class="stats">
-            <div class="stat" onclick="TodoApp.setFilter('all')">
+            <div class="stat" onclick="setFilter('all')">
                 <div class="stat-number" id="totalTasks">0</div>
                 <div class="stat-label">アクティブ</div>
             </div>
-            <div class="stat" onclick="TodoApp.setFilter('progress')">
+            <div class="stat" onclick="setFilter('progress')">
                 <div class="stat-number" id="progressTasks">0</div>
                 <div class="stat-label">進行中</div>
             </div>
-            <div class="stat" onclick="TodoApp.setFilter('completed')">
+            <div class="stat" onclick="setFilter('completed')">
                 <div class="stat-number" id="completedTasks">0</div>
                 <div class="stat-label">完了</div>
             </div>
@@ -71,247 +89,546 @@
 
         <div class="add-task">
             <input type="text" id="newTask" placeholder="新しいタスクを入力...">
-            <button onclick="TodoApp.addTask()">追加</button>
+            <button onclick="addTask()">追加</button>
         </div>
 
         <div class="filters">
-            <button class="filter active" onclick="TodoApp.setFilter('all')">アクティブ</button>
-            <button class="filter" onclick="TodoApp.setFilter('progress')">進行中</button>
-            <button class="filter" onclick="TodoApp.setFilter('completed')">完了</button>
+            <button class="filter active" onclick="setFilter('all')">アクティブ</button>
+            <button class="filter" onclick="setFilter('progress')">進行中</button>
+            <button class="filter" onclick="setFilter('completed')">完了</button>
         </div>
 
         <div class="tasks" id="taskList"></div>
     </div>
 
+    <div class="sync-indicator" id="syncIndicator"></div>
+
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <script>
-        // グローバル名前空間を作成
-        window.TodoApp = {
-            tasks: [],
-            currentFilter: 'all',
-
-            init: function() {
-                console.log('TodoApp初期化開始');
-                this.loadTasks();
-                this.setupEvents();
-                console.log('TodoApp初期化完了');
-            },
-
-            setupEvents: function() {
-                var input = document.getElementById('newTask');
-                if (input) {
-                    input.addEventListener('keypress', function(e) {
-                        if (e.key === 'Enter') {
-                            TodoApp.addTask();
-                        }
-                    });
-                }
-            },
-
-            addTask: function() {
-                console.log('addTask実行');
-                
-                var input = document.getElementById('newTask');
-                if (!input) return;
-                
-                var text = input.value.trim();
-                if (!text) return;
-
-                var task = {
-                    id: Date.now(),
-                    text: text,
-                    status: 'todo'
-                };
-
-                this.tasks.push(task);
-                input.value = '';
-                
-                console.log('タスク追加:', task.text);
-                
-                this.renderTasks();
-                this.saveTasks();
-            },
-
-            changeStatus: function(id, newStatus) {
-                console.log('ステータス変更:', id, newStatus);
-                
-                for (var i = 0; i < this.tasks.length; i++) {
-                    if (this.tasks[i].id == id) {
-                        this.tasks[i].status = newStatus;
-                        break;
-                    }
-                }
-                
-                this.renderTasks();
-                this.saveTasks();
-            },
-
-            deleteTask: function(id) {
-                console.log('タスク削除:', id);
-                
-                var newTasks = [];
-                for (var i = 0; i < this.tasks.length; i++) {
-                    if (this.tasks[i].id != id) {
-                        newTasks.push(this.tasks[i]);
-                    }
-                }
-                this.tasks = newTasks;
-                
-                this.renderTasks();
-                this.saveTasks();
-            },
-
-            editTask: function(id) {
-                var newText = prompt('新しいタスク名:');
-                if (newText && newText.trim()) {
-                    for (var i = 0; i < this.tasks.length; i++) {
-                        if (this.tasks[i].id == id) {
-                            this.tasks[i].text = newText.trim();
-                            break;
-                        }
-                    }
-                    this.renderTasks();
-                    this.saveTasks();
-                }
-            },
-
-            setFilter: function(filter) {
-                console.log('フィルター:', filter);
-                this.currentFilter = filter;
-                
-                var filters = document.querySelectorAll('.filter');
-                for (var i = 0; i < filters.length; i++) {
-                    filters[i].classList.remove('active');
-                }
-                
-                if (filter === 'all') {
-                    filters[0].classList.add('active');
-                } else if (filter === 'progress') {
-                    filters[1].classList.add('active');
-                } else if (filter === 'completed') {
-                    filters[2].classList.add('active');
-                }
-                
-                this.renderTasks();
-            },
-
-            getFilteredTasks: function() {
-                var filtered = [];
-                
-                for (var i = 0; i < this.tasks.length; i++) {
-                    var task = this.tasks[i];
-                    
-                    if (this.currentFilter === 'all' && task.status !== 'completed') {
-                        filtered.push(task);
-                    } else if (this.currentFilter === 'progress' && task.status === 'progress') {
-                        filtered.push(task);
-                    } else if (this.currentFilter === 'completed' && task.status === 'completed') {
-                        filtered.push(task);
-                    }
-                }
-                
-                filtered.sort(function(a, b) {
-                    if (a.status === 'progress' && b.status !== 'progress') return -1;
-                    if (b.status === 'progress' && a.status !== 'progress') return 1;
-                    return 0;
-                });
-                
-                return filtered;
-            },
-
-            getTaskActions: function(task) {
-                var actions = '';
-                
-                if (task.status === 'todo') {
-                    actions += '<button class="start" onclick="TodoApp.changeStatus(' + task.id + ', \'progress\')" title="開始">▷</button>';
-                    actions += '<button class="complete" onclick="TodoApp.changeStatus(' + task.id + ', \'completed\')" title="完了">✓</button>';
-                } else if (task.status === 'progress') {
-                    actions += '<button class="back" onclick="TodoApp.changeStatus(' + task.id + ', \'todo\')" title="戻す">⏸</button>';
-                    actions += '<button class="complete" onclick="TodoApp.changeStatus(' + task.id + ', \'completed\')" title="完了">✓</button>';
-                } else if (task.status === 'completed') {
-                    actions += '<button class="back" onclick="TodoApp.changeStatus(' + task.id + ', \'todo\')" title="再開">↻</button>';
-                }
-                
-                actions += '<button class="delete" onclick="TodoApp.deleteTask(' + task.id + ')" title="削除">×</button>';
-                return actions;
-            },
-
-            renderTasks: function() {
-                console.log('renderTasks実行');
-                
-                var filtered = this.getFilteredTasks();
-                var html = '';
-                
-                if (filtered.length > 0) {
-                    for (var i = 0; i < filtered.length; i++) {
-                        var task = filtered[i];
-                        html += '<div class="task ' + task.status + '">';
-                        html += '<div class="task-status ' + task.status + '"></div>';
-                        html += '<div class="task-content">';
-                        html += '<div class="task-text" onclick="TodoApp.editTask(' + task.id + ')">' + task.text + '</div>';
-                        html += '</div>';
-                        html += '<div class="task-actions">' + this.getTaskActions(task) + '</div>';
-                        html += '</div>';
-                    }
-                } else {
-                    html = '<div class="empty">タスクがありません</div>';
-                }
-
-                var taskList = document.getElementById('taskList');
-                if (taskList) {
-                    taskList.innerHTML = html;
-                }
-                
-                this.updateStats();
-            },
-
-            updateStats: function() {
-                var totalCount = 0;
-                var progressCount = 0;
-                var completedCount = 0;
-                
-                for (var i = 0; i < this.tasks.length; i++) {
-                    if (this.tasks[i].status === 'progress') {
-                        progressCount++;
-                    } else if (this.tasks[i].status === 'completed') {
-                        completedCount++;
-                    }
-                    
-                    if (this.tasks[i].status !== 'completed') {
-                        totalCount++;
-                    }
-                }
-                
-                var total = document.getElementById('totalTasks');
-                var progress = document.getElementById('progressTasks');
-                var completed = document.getElementById('completedTasks');
-                
-                if (total) total.textContent = totalCount;
-                if (progress) progress.textContent = progressCount;
-                if (completed) completed.textContent = completedCount;
-            },
-
-            saveTasks: function() {
-                localStorage.setItem('todoapp_tasks', JSON.stringify(this.tasks));
-            },
-
-            loadTasks: function() {
-                var saved = localStorage.getItem('todoapp_tasks');
-                if (saved) {
-                    this.tasks = JSON.parse(saved);
-                    console.log('保存済みタスク:', this.tasks.length, '件');
-                }
-                this.renderTasks();
+        console.log('ToDoアプリ ver.2024.1.8 開始');
+        
+        // Supabase設定
+        let supabase = null;
+        
+        try {
+            const SUPABASE_URL = 'https://hsekpmpboawozvuwscf.supabase.co';
+            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhzZWtwbXBib2F3b3p2dXdzY2YiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTczNjI2MjEzOCwiZXhwIjoyMDUxODM4MTM4fQ.GwYmQGdFw0f6Zv8iLUcRgf6rF2wX5zBpzF2_A9xAP7s';
+            
+            if (window.supabase && window.supabase.createClient) {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log('Supabase初期化成功');
+            } else {
+                console.warn('Supabaseライブラリが読み込まれていません');
             }
-        };
+        } catch (error) {
+            console.error('Supabase初期化エラー:', error);
+        }
+
+        // アプリケーション状態
+        let tasks = [];
+        let currentFilter = 'all';
+        let userId = localStorage.getItem('todo_user_id') || generateUserId();
+        let draggedTaskIndex = null;
+        let pendingSync = new Set();
+        let syncTimer = null;
+
+        // スマホ対応: タッチイベント用変数
+        let touchStartY = 0;
+        let touchCurrentY = 0;
+        let isTouching = false;
+
+        function generateUserId() {
+            const id = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('todo_user_id', id);
+            return id;
+        }
+
+        function showSyncIndicator(message, isError = false) {
+            const indicator = document.getElementById('syncIndicator');
+            if (indicator) {
+                indicator.textContent = message;
+                indicator.className = `sync-indicator show ${isError ? 'error' : ''}`;
+                setTimeout(() => {
+                    indicator.classList.remove('show');
+                }, 2000);
+            }
+        }
+
+        async function loadTasks() {
+            try {
+                console.log('データ読み込み開始');
+                
+                // ローカルストレージから即座に読み込み
+                const localTasks = localStorage.getItem('taskflow_tasks_' + userId);
+                if (localTasks) {
+                    tasks = JSON.parse(localTasks);
+                    console.log('ローカルデータ読み込み:', tasks.length, '件');
+                    renderTasks();
+                }
+
+                // Supabaseが利用可能な場合のみクラウド同期
+                if (supabase) {
+                    const { data, error } = await supabase
+                        .from('tasks')
+                        .select('*')
+                        .eq('user_id', userId)
+                        .order('order_index', { ascending: true });
+
+                    if (error) {
+                        console.error('Supabase読み込みエラー:', error);
+                        showSyncIndicator('同期エラー', true);
+                    } else if (data && data.length > 0) {
+                        console.log('Supabaseデータ読み込み:', data.length, '件');
+                        tasks = data.map(item => ({
+                            id: item.id,
+                            text: item.text,
+                            status: item.status,
+                            createdAt: item.created_at,
+                            completedAt: item.completed_at,
+                            order: item.order_index
+                        }));
+                        renderTasks();
+                        localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
+                    }
+                }
+                console.log('データ読み込み完了');
+            } catch (error) {
+                console.error('loadTasks エラー:', error);
+                showSyncIndicator('同期エラー', true);
+            }
+        }
+
+        function scheduleBatchSync() {
+            if (syncTimer) clearTimeout(syncTimer);
+            
+            syncTimer = setTimeout(async () => {
+                if (pendingSync.size > 0) {
+                    await performBatchSync();
+                }
+            }, 1000);
+        }
+
+        async function performBatchSync() {
+            if (!supabase) {
+                localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
+                pendingSync.clear();
+                return;
+            }
+
+            try {
+                const updates = Array.from(pendingSync).map(id => {
+                    const task = tasks.find(t => t.id === id);
+                    if (!task) return null;
+                    
+                    return {
+                        id: task.id,
+                        user_id: userId,
+                        text: task.text,
+                        status: task.status,
+                        created_at: task.createdAt,
+                        completed_at: task.completedAt,
+                        order_index: task.order || 0
+                    };
+                }).filter(Boolean);
+
+                if (updates.length > 0) {
+                    const { error } = await supabase
+                        .from('tasks')
+                        .upsert(updates, { onConflict: 'id' });
+
+                    if (error) {
+                        console.error('Supabase保存エラー:', error);
+                        showSyncIndicator('同期エラー', true);
+                    } else {
+                        console.log('Supabase保存成功:', updates.length, '件');
+                    }
+                }
+                
+                pendingSync.clear();
+                localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
+            } catch (error) {
+                console.error('performBatchSync エラー:', error);
+                showSyncIndicator('同期エラー', true);
+                localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
+            }
+        }
+
+        async function addTask() {
+            console.log('addTask 関数実行');
+            
+            const input = document.getElementById('newTask');
+            if (!input) {
+                console.error('入力要素が見つかりません');
+                return;
+            }
+            
+            const text = input.value.trim();
+            console.log('入力テキスト:', text);
+            
+            if (!text) {
+                console.log('テキストが空です');
+                return;
+            }
+
+            const task = {
+                id: Date.now(),
+                text: text,
+                status: 'todo',
+                createdAt: new Date().toISOString(),
+                completedAt: null,
+                order: tasks.length
+            };
+
+            console.log('新しいタスク:', task);
+            
+            tasks.push(task);
+            input.value = '';
+            renderTasks();
+
+            console.log('タスク追加完了, 総数:', tasks.length);
+            
+            pendingSync.add(task.id);
+            scheduleBatchSync();
+        }
+
+        async function changeStatus(id, newStatus) {
+            console.log('ステータス変更:', id, newStatus);
+            
+            const task = tasks.find(t => t.id === id);
+            if (!task) {
+                console.error('タスクが見つかりません:', id);
+                return;
+            }
+            
+            task.status = newStatus;
+            
+            if (newStatus === 'completed') {
+                task.completedAt = new Date().toISOString();
+            } else {
+                task.completedAt = null;
+            }
+            
+            renderTasks();
+            pendingSync.add(id);
+            scheduleBatchSync();
+        }
+
+        async function deleteTask(id) {
+            console.log('タスク削除:', id);
+            
+            tasks = tasks.filter(t => t.id !== id);
+            renderTasks();
+
+            if (supabase) {
+                try {
+                    await supabase
+                        .from('tasks')
+                        .delete()
+                        .eq('id', id)
+                        .eq('user_id', userId);
+                } catch (error) {
+                    console.error('削除エラー:', error);
+                }
+            }
+
+            localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
+        }
+
+        function setFilter(filter) {
+            console.log('フィルター変更:', filter);
+            currentFilter = filter;
+            document.querySelectorAll('.filter').forEach(f => f.classList.remove('active'));
+            
+            const filterTexts = {
+                'all': 'アクティブ',
+                'progress': '進行中', 
+                'completed': '完了'
+            };
+            
+            document.querySelectorAll('.filter').forEach(f => {
+                if (f.textContent === filterTexts[filter]) {
+                    f.classList.add('active');
+                }
+            });
+            
+            renderTasks();
+        }
+
+        function getFilteredTasks() {
+            let filtered;
+            if (currentFilter === 'all') {
+                filtered = tasks.filter(t => t.status !== 'completed');
+            } else if (currentFilter === 'progress') {
+                filtered = tasks.filter(t => t.status === 'progress');
+            } else if (currentFilter === 'completed') {
+                filtered = tasks.filter(t => t.status === 'completed');
+            } else {
+                filtered = tasks;
+            }
+            
+            return filtered.sort((a, b) => {
+                if (a.status === 'progress' && b.status !== 'progress') return -1;
+                if (b.status === 'progress' && a.status !== 'progress') return 1;
+                return (a.order || 0) - (b.order || 0);
+            });
+        }
+
+        function editTaskName(id) {
+            const task = tasks.find(t => t.id === id);
+            const taskElement = document.querySelector(`[data-task-id="${id}"] .task-text`);
+            
+            if (!task || !taskElement) {
+                console.error('編集対象が見つかりません:', id);
+                return;
+            }
+            
+            taskElement.contentEditable = true;
+            taskElement.classList.add('editing');
+            taskElement.focus();
+            
+            const range = document.createRange();
+            range.selectNodeContents(taskElement);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            
+            function finishEdit() {
+                const newText = taskElement.textContent.trim();
+                if (newText && newText !== task.text) {
+                    task.text = newText;
+                    pendingSync.add(id);
+                    scheduleBatchSync();
+                }
+                
+                taskElement.contentEditable = false;
+                taskElement.classList.remove('editing');
+                renderTasks();
+            }
+            
+            taskElement.addEventListener('blur', finishEdit, { once: true });
+            taskElement.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    taskElement.blur();
+                } else if (e.key === 'Escape') {
+                    taskElement.textContent = task.text;
+                    taskElement.blur();
+                }
+            }, { once: true });
+        }
+
+        // ドラッグ&ドロップ処理（PC + スマホ対応）
+        function handleDragStart(e, index) {
+            draggedTaskIndex = index;
+            e.target.classList.add('dragging');
+            if (e.dataTransfer) {
+                e.dataTransfer.effectAllowed = 'move';
+            }
+        }
+
+        function handleTouchStart(e, index) {
+            e.preventDefault();
+            draggedTaskIndex = index;
+            isTouching = true;
+            touchStartY = e.touches[0].clientY;
+            e.target.classList.add('dragging');
+        }
+
+        function handleTouchMove(e) {
+            if (!isTouching || draggedTaskIndex === null) return;
+            
+            e.preventDefault();
+            touchCurrentY = e.touches[0].clientY;
+            
+            const draggedElement = e.target.closest('.task');
+            if (draggedElement) {
+                const moveDistance = touchCurrentY - touchStartY;
+                draggedElement.style.transform = `translateY(${moveDistance}px) rotate(2deg)`;
+            }
+        }
+
+        function handleTouchEnd(e) {
+            if (!isTouching || draggedTaskIndex === null) return;
+            
+            e.preventDefault();
+            isTouching = false;
+            
+            const moveDistance = touchCurrentY - touchStartY;
+            const taskHeight = 60;
+            const moveSteps = Math.round(moveDistance / taskHeight);
+            const dropIndex = Math.max(0, Math.min(getFilteredTasks().length - 1, draggedTaskIndex + moveSteps));
+            
+            if (dropIndex !== draggedTaskIndex) {
+                handleDropLogic(draggedTaskIndex, dropIndex);
+            }
+            
+            const draggedElement = document.querySelector('.task.dragging');
+            if (draggedElement) {
+                draggedElement.style.transform = '';
+                draggedElement.classList.remove('dragging');
+            }
+            
+            draggedTaskIndex = null;
+        }
+
+        function handleDragOver(e, index) {
+            e.preventDefault();
+            if (e.dataTransfer) {
+                e.dataTransfer.dropEffect = 'move';
+            }
+            
+            if (draggedTaskIndex !== null && draggedTaskIndex !== index) {
+                e.target.closest('.task').classList.add('drag-over');
+            }
+        }
+
+        function handleDragLeave(e) {
+            e.target.closest('.task').classList.remove('drag-over');
+        }
+
+        function handleDrop(e, dropIndex) {
+            e.preventDefault();
+            e.target.closest('.task').classList.remove('drag-over');
+            
+            if (draggedTaskIndex !== null && draggedTaskIndex !== dropIndex) {
+                handleDropLogic(draggedTaskIndex, dropIndex);
+            }
+        }
+
+        function handleDropLogic(fromIndex, toIndex) {
+            const filtered = getFilteredTasks();
+            const draggedTask = filtered[fromIndex];
+            const dropTask = filtered[toIndex];
+            
+            if (!draggedTask || !dropTask) return;
+            
+            const draggedOriginalIndex = tasks.findIndex(t => t.id === draggedTask.id);
+            const dropOriginalIndex = tasks.findIndex(t => t.id === dropTask.id);
+            
+            const newOrder = dropTask.order || 0;
+            draggedTask.order = newOrder;
+            
+            if (draggedOriginalIndex < dropOriginalIndex) {
+                tasks.forEach(task => {
+                    if (task.id !== draggedTask.id && (task.order || 0) > (draggedTask.order || 0) && (task.order || 0) <= newOrder) {
+                        task.order = (task.order || 0) - 1;
+                    }
+                });
+            } else {
+                tasks.forEach(task => {
+                    if (task.id !== draggedTask.id && (task.order || 0) >= newOrder && (task.order || 0) < (draggedTask.order || 0)) {
+                        task.order = (task.order || 0) + 1;
+                    }
+                });
+            }
+            
+            renderTasks();
+            
+            pendingSync.add(draggedTask.id);
+            pendingSync.add(dropTask.id);
+            scheduleBatchSync();
+        }
+
+        function handleDragEnd(e) {
+            e.target.classList.remove('dragging');
+            document.querySelectorAll('.task').forEach(task => {
+                task.classList.remove('drag-over');
+            });
+            draggedTaskIndex = null;
+        }
+
+        function getTaskActions(task) {
+            let actions = '';
+            
+            if (task.status === 'todo') {
+                actions += `<button class="start" onclick="changeStatus(${task.id}, 'progress')" title="開始">▷</button>`;
+                actions += `<button class="complete" onclick="changeStatus(${task.id}, 'completed')" title="完了">✓</button>`;
+            } else if (task.status === 'progress') {
+                actions += `<button class="back" onclick="changeStatus(${task.id}, 'todo')" title="戻す">⏸</button>`;
+                actions += `<button class="complete" onclick="changeStatus(${task.id}, 'completed')" title="完了">✓</button>`;
+            } else if (task.status === 'completed') {
+                actions += `<button class="back" onclick="changeStatus(${task.id}, 'todo')" title="再開">↻</button>`;
+            }
+            
+            actions += `<button class="delete" onclick="deleteTask(${task.id})" title="削除">×</button>`;
+            return actions;
+        }
+
+        function renderTasks() {
+            console.log('renderTasks 実行, タスク数:', tasks.length);
+            
+            const filtered = getFilteredTasks();
+            console.log('フィルター後:', filtered.length);
+
+            const html = filtered.length ? filtered.map((task, index) => `
+                <div class="task ${task.status}" 
+                     data-task-id="${task.id}"
+                     draggable="true"
+                     ondragstart="handleDragStart(event, ${index})"
+                     ondragover="handleDragOver(event, ${index})"
+                     ondragleave="handleDragLeave(event)"
+                     ondrop="handleDrop(event, ${index})"
+                     ondragend="handleDragEnd(event)"
+                     ontouchstart="handleTouchStart(event, ${index})"
+                     ontouchmove="handleTouchMove(event)"
+                     ontouchend="handleTouchEnd(event)">
+                    <div class="task-status ${task.status}"></div>
+                    <div class="task-content">
+                        <div class="task-text" onclick="editTaskName(${task.id})" title="クリックして編集">${task.text}</div>
+                    </div>
+                    <div class="task-actions">
+                        ${getTaskActions(task)}
+                    </div>
+                </div>
+            `).join('') : '<div class="empty">タスクがありません</div>';
+
+            const taskList = document.getElementById('taskList');
+            if (taskList) {
+                taskList.innerHTML = html;
+                console.log('HTML更新完了');
+            } else {
+                console.error('taskList要素が見つかりません');
+            }
+            
+            updateStats();
+        }
+
+        function updateStats() {
+            const totalElement = document.getElementById('totalTasks');
+            const progressElement = document.getElementById('progressTasks');
+            const completedElement = document.getElementById('completedTasks');
+            
+            if (totalElement) totalElement.textContent = tasks.filter(t => t.status !== 'completed').length;
+            if (progressElement) progressElement.textContent = tasks.filter(t => t.status === 'progress').length;
+            if (completedElement) completedElement.textContent = tasks.filter(t => t.status === 'completed').length;
+        }
+
+        // イベントリスナー
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM読み込み完了');
+            
+            const newTaskInput = document.getElementById('newTask');
+            if (newTaskInput) {
+                newTaskInput.addEventListener('keypress', e => {
+                    if (e.key === 'Enter') {
+                        console.log('Enterキー押下');
+                        addTask();
+                    }
+                });
+            } else {
+                console.error('newTask要素が見つかりません');
+            }
+        });
+
+        window.addEventListener('beforeunload', () => {
+            if (pendingSync.size > 0) {
+                localStorage.setItem('taskflow_tasks_' + userId, JSON.stringify(tasks));
+            }
+        });
 
         // 初期化
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function() {
-                TodoApp.init();
-            });
-        } else {
-            TodoApp.init();
-        }
+        console.log('初期化開始');
+        loadTasks();
     </script>
 </body>
 </html>
