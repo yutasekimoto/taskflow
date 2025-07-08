@@ -54,15 +54,15 @@
         </div>
 
         <div class="stats">
-            <div class="stat" onclick="setFilter('all')">
+            <div class="stat" onclick="TodoApp.setFilter('all')">
                 <div class="stat-number" id="totalTasks">0</div>
                 <div class="stat-label">アクティブ</div>
             </div>
-            <div class="stat" onclick="setFilter('progress')">
+            <div class="stat" onclick="TodoApp.setFilter('progress')">
                 <div class="stat-number" id="progressTasks">0</div>
                 <div class="stat-label">進行中</div>
             </div>
-            <div class="stat" onclick="setFilter('completed')">
+            <div class="stat" onclick="TodoApp.setFilter('completed')">
                 <div class="stat-number" id="completedTasks">0</div>
                 <div class="stat-label">完了</div>
             </div>
@@ -70,228 +70,247 @@
 
         <div class="add-task">
             <input type="text" id="newTask" placeholder="新しいタスクを入力...">
-            <button onclick="addTask()">追加</button>
+            <button onclick="TodoApp.addTask()">追加</button>
         </div>
 
         <div class="filters">
-            <button class="filter active" onclick="setFilter('all')">アクティブ</button>
-            <button class="filter" onclick="setFilter('progress')">進行中</button>
-            <button class="filter" onclick="setFilter('completed')">完了</button>
+            <button class="filter active" onclick="TodoApp.setFilter('all')">アクティブ</button>
+            <button class="filter" onclick="TodoApp.setFilter('progress')">進行中</button>
+            <button class="filter" onclick="TodoApp.setFilter('completed')">完了</button>
         </div>
 
         <div class="tasks" id="taskList"></div>
     </div>
 
     <script>
-        console.log('シンプルToDoアプリ開始');
-        
-        var tasks = [];
-        var currentFilter = 'all';
+        // グローバル名前空間を作成
+        window.TodoApp = {
+            tasks: [],
+            currentFilter: 'all',
 
-        function addTask() {
-            console.log('addTask呼び出し');
-            
-            var input = document.getElementById('newTask');
-            var text = input.value.trim();
-            
-            if (!text) {
-                console.log('テキストが空');
-                return;
-            }
+            init: function() {
+                console.log('TodoApp初期化開始');
+                this.loadTasks();
+                this.setupEvents();
+                console.log('TodoApp初期化完了');
+            },
 
-            var task = {
-                id: Date.now(),
-                text: text,
-                status: 'todo'
-            };
-
-            tasks.push(task);
-            input.value = '';
-            
-            console.log('タスク追加:', task);
-            console.log('現在のタスク数:', tasks.length);
-            
-            renderTasks();
-            saveTasks();
-        }
-
-        function changeStatus(id, newStatus) {
-            console.log('ステータス変更:', id, newStatus);
-            
-            for (var i = 0; i < tasks.length; i++) {
-                if (tasks[i].id == id) {
-                    tasks[i].status = newStatus;
-                    break;
+            setupEvents: function() {
+                var input = document.getElementById('newTask');
+                if (input) {
+                    input.addEventListener('keypress', function(e) {
+                        if (e.key === 'Enter') {
+                            TodoApp.addTask();
+                        }
+                    });
                 }
-            }
-            
-            renderTasks();
-            saveTasks();
-        }
+            },
 
-        function deleteTask(id) {
-            console.log('タスク削除:', id);
-            
-            var newTasks = [];
-            for (var i = 0; i < tasks.length; i++) {
-                if (tasks[i].id != id) {
-                    newTasks.push(tasks[i]);
-                }
-            }
-            tasks = newTasks;
-            
-            renderTasks();
-            saveTasks();
-        }
+            addTask: function() {
+                console.log('addTask実行');
+                
+                var input = document.getElementById('newTask');
+                if (!input) return;
+                
+                var text = input.value.trim();
+                if (!text) return;
 
-        function editTask(id) {
-            var newText = prompt('新しいタスク名を入力:');
-            if (newText && newText.trim()) {
-                for (var i = 0; i < tasks.length; i++) {
-                    if (tasks[i].id == id) {
-                        tasks[i].text = newText.trim();
+                var task = {
+                    id: Date.now(),
+                    text: text,
+                    status: 'todo'
+                };
+
+                this.tasks.push(task);
+                input.value = '';
+                
+                console.log('タスク追加:', task.text);
+                
+                this.renderTasks();
+                this.saveTasks();
+            },
+
+            changeStatus: function(id, newStatus) {
+                console.log('ステータス変更:', id, newStatus);
+                
+                for (var i = 0; i < this.tasks.length; i++) {
+                    if (this.tasks[i].id == id) {
+                        this.tasks[i].status = newStatus;
                         break;
                     }
                 }
-                renderTasks();
-                saveTasks();
-            }
-        }
-
-        function setFilter(filter) {
-            console.log('フィルター変更:', filter);
-            currentFilter = filter;
-            
-            var filters = document.querySelectorAll('.filter');
-            for (var i = 0; i < filters.length; i++) {
-                filters[i].classList.remove('active');
-            }
-            
-            if (filter === 'all') {
-                filters[0].classList.add('active');
-            } else if (filter === 'progress') {
-                filters[1].classList.add('active');
-            } else if (filter === 'completed') {
-                filters[2].classList.add('active');
-            }
-            
-            renderTasks();
-        }
-
-        function getFilteredTasks() {
-            var filtered = [];
-            
-            for (var i = 0; i < tasks.length; i++) {
-                var task = tasks[i];
                 
-                if (currentFilter === 'all' && task.status !== 'completed') {
-                    filtered.push(task);
-                } else if (currentFilter === 'progress' && task.status === 'progress') {
-                    filtered.push(task);
-                } else if (currentFilter === 'completed' && task.status === 'completed') {
-                    filtered.push(task);
+                this.renderTasks();
+                this.saveTasks();
+            },
+
+            deleteTask: function(id) {
+                console.log('タスク削除:', id);
+                
+                var newTasks = [];
+                for (var i = 0; i < this.tasks.length; i++) {
+                    if (this.tasks[i].id != id) {
+                        newTasks.push(this.tasks[i]);
+                    }
                 }
-            }
-            
-            // 進行中を最上位に
-            filtered.sort(function(a, b) {
-                if (a.status === 'progress' && b.status !== 'progress') return -1;
-                if (b.status === 'progress' && a.status !== 'progress') return 1;
-                return 0;
-            });
-            
-            return filtered;
-        }
+                this.tasks = newTasks;
+                
+                this.renderTasks();
+                this.saveTasks();
+            },
 
-        function getTaskActions(task) {
-            var actions = '';
-            
-            if (task.status === 'todo') {
-                actions += '<button class="start" onclick="changeStatus(' + task.id + ', \'progress\')" title="開始">▷</button>';
-                actions += '<button class="complete" onclick="changeStatus(' + task.id + ', \'completed\')" title="完了">✓</button>';
-            } else if (task.status === 'progress') {
-                actions += '<button class="back" onclick="changeStatus(' + task.id + ', \'todo\')" title="戻す">⏸</button>';
-                actions += '<button class="complete" onclick="changeStatus(' + task.id + ', \'completed\')" title="完了">✓</button>';
-            } else if (task.status === 'completed') {
-                actions += '<button class="back" onclick="changeStatus(' + task.id + ', \'todo\')" title="再開">↻</button>';
-            }
-            
-            actions += '<button class="delete" onclick="deleteTask(' + task.id + ')" title="削除">×</button>';
-            return actions;
-        }
-
-        function renderTasks() {
-            console.log('renderTasks実行');
-            
-            var filtered = getFilteredTasks();
-            var html = '';
-            
-            if (filtered.length > 0) {
-                for (var i = 0; i < filtered.length; i++) {
-                    var task = filtered[i];
-                    html += '<div class="task ' + task.status + '">';
-                    html += '<div class="task-status ' + task.status + '"></div>';
-                    html += '<div class="task-content">';
-                    html += '<div class="task-text" onclick="editTask(' + task.id + ')">' + task.text + '</div>';
-                    html += '</div>';
-                    html += '<div class="task-actions">' + getTaskActions(task) + '</div>';
-                    html += '</div>';
+            editTask: function(id) {
+                var newText = prompt('新しいタスク名:');
+                if (newText && newText.trim()) {
+                    for (var i = 0; i < this.tasks.length; i++) {
+                        if (this.tasks[i].id == id) {
+                            this.tasks[i].text = newText.trim();
+                            break;
+                        }
+                    }
+                    this.renderTasks();
+                    this.saveTasks();
                 }
-            } else {
-                html = '<div class="empty">タスクがありません</div>';
-            }
+            },
 
-            document.getElementById('taskList').innerHTML = html;
-            updateStats();
-        }
-
-        function updateStats() {
-            var totalCount = 0;
-            var progressCount = 0;
-            var completedCount = 0;
-            
-            for (var i = 0; i < tasks.length; i++) {
-                if (tasks[i].status === 'progress') {
-                    progressCount++;
-                } else if (tasks[i].status === 'completed') {
-                    completedCount++;
+            setFilter: function(filter) {
+                console.log('フィルター:', filter);
+                this.currentFilter = filter;
+                
+                var filters = document.querySelectorAll('.filter');
+                for (var i = 0; i < filters.length; i++) {
+                    filters[i].classList.remove('active');
                 }
                 
-                if (tasks[i].status !== 'completed') {
-                    totalCount++;
+                if (filter === 'all') {
+                    filters[0].classList.add('active');
+                } else if (filter === 'progress') {
+                    filters[1].classList.add('active');
+                } else if (filter === 'completed') {
+                    filters[2].classList.add('active');
                 }
-            }
-            
-            document.getElementById('totalTasks').textContent = totalCount;
-            document.getElementById('progressTasks').textContent = progressCount;
-            document.getElementById('completedTasks').textContent = completedCount;
-        }
+                
+                this.renderTasks();
+            },
 
-        function saveTasks() {
-            localStorage.setItem('simple_todo_tasks', JSON.stringify(tasks));
-        }
+            getFilteredTasks: function() {
+                var filtered = [];
+                
+                for (var i = 0; i < this.tasks.length; i++) {
+                    var task = this.tasks[i];
+                    
+                    if (this.currentFilter === 'all' && task.status !== 'completed') {
+                        filtered.push(task);
+                    } else if (this.currentFilter === 'progress' && task.status === 'progress') {
+                        filtered.push(task);
+                    } else if (this.currentFilter === 'completed' && task.status === 'completed') {
+                        filtered.push(task);
+                    }
+                }
+                
+                filtered.sort(function(a, b) {
+                    if (a.status === 'progress' && b.status !== 'progress') return -1;
+                    if (b.status === 'progress' && a.status !== 'progress') return 1;
+                    return 0;
+                });
+                
+                return filtered;
+            },
 
-        function loadTasks() {
-            var saved = localStorage.getItem('simple_todo_tasks');
-            if (saved) {
-                tasks = JSON.parse(saved);
-                console.log('保存済みタスク読み込み:', tasks.length, '件');
-            }
-            renderTasks();
-        }
+            getTaskActions: function(task) {
+                var actions = '';
+                
+                if (task.status === 'todo') {
+                    actions += '<button class="start" onclick="TodoApp.changeStatus(' + task.id + ', \'progress\')" title="開始">▷</button>';
+                    actions += '<button class="complete" onclick="TodoApp.changeStatus(' + task.id + ', \'completed\')" title="完了">✓</button>';
+                } else if (task.status === 'progress') {
+                    actions += '<button class="back" onclick="TodoApp.changeStatus(' + task.id + ', \'todo\')" title="戻す">⏸</button>';
+                    actions += '<button class="complete" onclick="TodoApp.changeStatus(' + task.id + ', \'completed\')" title="完了">✓</button>';
+                } else if (task.status === 'completed') {
+                    actions += '<button class="back" onclick="TodoApp.changeStatus(' + task.id + ', \'todo\')" title="再開">↻</button>';
+                }
+                
+                actions += '<button class="delete" onclick="TodoApp.deleteTask(' + task.id + ')" title="削除">×</button>';
+                return actions;
+            },
 
-        // Enterキーで追加
-        document.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && e.target.id === 'newTask') {
-                addTask();
+            renderTasks: function() {
+                console.log('renderTasks実行');
+                
+                var filtered = this.getFilteredTasks();
+                var html = '';
+                
+                if (filtered.length > 0) {
+                    for (var i = 0; i < filtered.length; i++) {
+                        var task = filtered[i];
+                        html += '<div class="task ' + task.status + '">';
+                        html += '<div class="task-status ' + task.status + '"></div>';
+                        html += '<div class="task-content">';
+                        html += '<div class="task-text" onclick="TodoApp.editTask(' + task.id + ')">' + task.text + '</div>';
+                        html += '</div>';
+                        html += '<div class="task-actions">' + this.getTaskActions(task) + '</div>';
+                        html += '</div>';
+                    }
+                } else {
+                    html = '<div class="empty">タスクがありません</div>';
+                }
+
+                var taskList = document.getElementById('taskList');
+                if (taskList) {
+                    taskList.innerHTML = html;
+                }
+                
+                this.updateStats();
+            },
+
+            updateStats: function() {
+                var totalCount = 0;
+                var progressCount = 0;
+                var completedCount = 0;
+                
+                for (var i = 0; i < this.tasks.length; i++) {
+                    if (this.tasks[i].status === 'progress') {
+                        progressCount++;
+                    } else if (this.tasks[i].status === 'completed') {
+                        completedCount++;
+                    }
+                    
+                    if (this.tasks[i].status !== 'completed') {
+                        totalCount++;
+                    }
+                }
+                
+                var total = document.getElementById('totalTasks');
+                var progress = document.getElementById('progressTasks');
+                var completed = document.getElementById('completedTasks');
+                
+                if (total) total.textContent = totalCount;
+                if (progress) progress.textContent = progressCount;
+                if (completed) completed.textContent = completedCount;
+            },
+
+            saveTasks: function() {
+                localStorage.setItem('todoapp_tasks', JSON.stringify(this.tasks));
+            },
+
+            loadTasks: function() {
+                var saved = localStorage.getItem('todoapp_tasks');
+                if (saved) {
+                    this.tasks = JSON.parse(saved);
+                    console.log('保存済みタスク:', this.tasks.length, '件');
+                }
+                this.renderTasks();
             }
-        });
+        };
 
         // 初期化
-        window.onload = function() {
-            console.log('初期化完了');
-            loadTasks();
-        };
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function() {
+                TodoApp.init();
+            });
+        } else {
+            TodoApp.init();
+        }
     </script>
 </body>
 </html>
